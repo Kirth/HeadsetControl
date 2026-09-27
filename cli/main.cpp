@@ -211,6 +211,12 @@ struct Options {
     bool request_sidetone                     = false;
     bool request_microphone_attachment_status = false;
     bool request_microphone_mute_status       = false;
+    bool request_anc                          = false;
+    bool request_anc_startup_mode             = false;
+    bool request_anc_button_modes             = false;
+    bool request_inactive_time                = false;
+    bool request_voice_prompts                = false;
+    bool request_bt_when_powered_on           = false;
 
     // Complex settings
     std::optional<EqualizerSettings> equalizer;
@@ -288,22 +294,28 @@ std::optional<cli::ParseError> configureParser(cli::ArgumentParser& parser, Opti
                 return std::nullopt; }, "Get current sidetone level, or set it to LEVEL", "LEVEL")
         .flag('b', "battery", opts.request_battery, "Check battery level")
         .toggle('l', "light", opts.lights_enabled, "Turn lights off (0) or on (1)")
-        .toggle('v', "voice-prompt", opts.voice_prompts_enabled, "Turn voice prompts off (0) or on (1)")
-        .value('i', "inactive-time", opts.inactive_time, uint8_t(0), uint8_t(90), "Set inactive time in minutes", "MINUTES")
+        .toggle_or_query('v', "voice-prompt", opts.voice_prompts_enabled, opts.request_voice_prompts, "Get voice prompts state, or turn them off (0) or on (1)")
+        .value_or_query('i', "inactive-time", opts.inactive_time, opts.request_inactive_time, uint8_t(0), uint8_t(90), "Get inactive time, or set it in minutes", "MINUTES")
         .flag('m', "chatmix", opts.request_chatmix, "Get chat-mix level")
         .value('n', "notificate", opts.notification_sound, uint8_t(0), uint8_t(255), "Play notification sound", "SOUNDID")
         .toggle('r', "rotate-to-mute", opts.rotate_to_mute_enabled, "Toggle rotate to mute")
         .value('p', "equalizer-preset", opts.equalizer_preset, uint8_t(0), uint8_t(255), "Set equalizer preset", "PRESET")
         .long_value("noise-filter", opts.noise_filter, uint8_t(0), uint8_t(2), "Set microphone noise filter level", "LEVEL")
-        .long_value("anc", opts.anc_mode, uint8_t(0), uint8_t(2), "Set headphone ANC mode (0=off, 1=ANC, 2=ambient)", "MODE")
-        .long_value("anc-startup-mode", opts.anc_startup_mode, uint8_t(0), uint8_t(3), "Set ANC mode at power-on (0=off, 1=NC, 2=ambient, 3=mode at power off)", "MODE")
-        .long_custom("anc-button-modes", cli::ArgRequirement::Required, [&opts](std::optional<std::string_view> arg) -> std::optional<cli::ParseError> {
+        .long_value_or_query("anc", opts.anc_mode, opts.request_anc, uint8_t(0), uint8_t(2), "Get headphone ANC mode, or set it (0=off, 1=ANC, 2=ambient)", "MODE")
+        .long_value_or_query("anc-startup-mode", opts.anc_startup_mode, opts.request_anc_startup_mode, uint8_t(0), uint8_t(3), "Get ANC mode at power-on, or set it (0=off, 1=NC, 2=ambient, 3=mode at power off)", "MODE")
+        .long_custom("anc-button-modes", cli::ArgRequirement::Optional, [&opts](std::optional<std::string_view> arg) -> std::optional<cli::ParseError> {
+                if (!arg || arg->empty()) {
+                    opts.anc_button_modes.reset();
+                    opts.request_anc_button_modes = true;
+                    return std::nullopt;
+                }
+                opts.request_anc_button_modes = false;
                 AncButtonModes modes;
                 if (auto error = parseAncButtonModes(arg, modes)) {
                     return error;
                 }
                 opts.anc_button_modes = modes;
-                return std::nullopt; }, "Set ANC modes the headset button cycles through", "off,anc,ambient")
+                return std::nullopt; }, "Get or set ANC modes the headset button cycles through", "off,anc,ambient")
         .long_flag("microphone-attachment-status", opts.request_microphone_attachment_status, "Show whether the boom mic is attached")
         .long_flag("microphone-mute-status", opts.request_microphone_mute_status, "Show whether the microphone is muted")
 
@@ -339,7 +351,7 @@ std::optional<cli::ParseError> configureParser(cli::ArgumentParser& parser, Opti
         .long_toggle("volume-limiter", opts.volume_limiter_enabled, "Toggle volume limiter")
 
         // === Bluetooth ===
-        .long_toggle("bt-when-powered-on", opts.bt_when_powered_on, "Bluetooth on at power-on")
+        .long_toggle_or_query("bt-when-powered-on", opts.bt_when_powered_on, opts.request_bt_when_powered_on, "Get or set Bluetooth on at power-on")
         .long_value("bt-call-volume", opts.bt_call_volume, uint8_t(0), uint8_t(255), "Set bluetooth call volume", "VOLUME")
 
         // === Output Format ===
@@ -405,27 +417,33 @@ std::optional<cli::ParseError> configureParser(cli::ArgumentParser& parser, Opti
                     // getCapabilities() may depend on the matched product ID, so ask
                     // each variant: capabilities all of them report get an "x", ones
                     // only some report get an "x*" (explained by a footnote below the
-                    // table in the README).
-                    int caps_any = 0;
-                    int caps_all = 0;
-                    bool first    = true;
+                    // table in the README). An "r" marks capabilities whose current
+                    // value every variant can also read back.
+                    int caps_any     = 0;
+                    int caps_all     = 0;
+                    int readable_all = 0;
+                    bool first       = true;
                     for (uint16_t pid : device->getProductIds()) {
                         device->setMatchedProductId(pid);
                         const int caps = device->getCapabilities();
                         caps_any |= caps;
                         caps_all = first ? caps : (caps_all & caps);
-                        first    = false;
+                        readable_all = first ? device->getReadableCapabilities()
+                                             : (readable_all & device->getReadableCapabilities());
+                        first = false;
                     }
                     device->setMatchedProductId(0);
                     if (first) { // device without product IDs
                         caps_any = caps_all = device->getCapabilities();
+                        readable_all        = device->getReadableCapabilities();
                     }
 
                     for (int j = 0; j < NUM_CAPABILITIES; j++) {
+                        const char* readable = (readable_all & B(j)) ? "r" : "";
                         if (caps_all & B(j)) {
-                            std::cout << " x |";
+                            std::cout << " x" << readable << " |";
                         } else if (caps_any & B(j)) {
-                            std::cout << " x* |";
+                            std::cout << " x" << readable << "* |";
                         } else {
                             std::cout << "   |";
                         }
@@ -523,6 +541,16 @@ struct DiscoveredDevice {
     [[nodiscard]] bool hasCapability(capabilities cap) const
     {
         return device && (device->getCapabilities() & B(cap)) != 0;
+    }
+
+    [[nodiscard]] bool canRead(capabilities cap) const
+    {
+        return device && (device->getReadableCapabilities() & B(cap)) != 0;
+    }
+
+    [[nodiscard]] bool canProcess(const FeatureRequest& req) const
+    {
+        return req.read ? canRead(req.cap) : hasCapability(req.cap);
     }
 };
 
@@ -657,16 +685,23 @@ FeatureResult convertToFeatureResult(const headsetcontrol::FeatureOutput& output
 }
 
 // Handle a feature request via the handler registry
-FeatureResult handleFeature(DiscoveredDevice& dev, capabilities cap, const FeatureParam& param)
+FeatureResult handleFeature(DiscoveredDevice& dev, const FeatureRequest& req)
 {
+    const capabilities cap = req.cap;
+
     // Validate parameter
-    if (auto error = headsetcontrol::validateFeatureParam(cap, param)) {
-        return make_error(-1, *error);
+    if (!req.read) {
+        if (auto error = headsetcontrol::validateFeatureParam(cap, req.param)) {
+            return make_error(-1, *error);
+        }
     }
 
     // Check device support
-    if (!dev.hasCapability(cap)) {
+    if (!dev.canProcess(req)) {
         const auto& desc = headsetcontrol::getCapabilityDescriptor(cap);
+        if (req.read) {
+            return make_error(-1, std::format("This headset can't read back {}", desc.name));
+        }
         return make_error(-1, std::format("This headset doesn't support {}", desc.name));
     }
 
@@ -683,8 +718,9 @@ FeatureResult handleFeature(DiscoveredDevice& dev, capabilities cap, const Featu
     }
 
     // Execute via handler registry (no more giant switch!)
-    auto result = headsetcontrol::FeatureHandlerRegistry::instance().execute(
-        cap, dev.device, handle, param);
+    const auto& registry = headsetcontrol::FeatureHandlerRegistry::instance();
+    auto result          = req.read ? registry.executeRead(cap, dev.device, handle)
+                                    : registry.execute(cap, dev.device, handle, req.param);
 
     if (result.hasError()) {
         return make_error(-1, result.error().message);
@@ -931,8 +967,8 @@ namespace help {
             sections.back()
                 .add('s', "sidetone", getValueHint(CAP_SIDETONE), "Get current level or set mic feedback (0-128)", CAP_SIDETONE)
                 .add("volume-limiter", getValueHint(CAP_VOLUME_LIMITER), "Enable/disable volume limiter", CAP_VOLUME_LIMITER)
-                .add("anc", getValueHint(CAP_ANC), "ANC mode (0=off, 1=noise cancelling, 2=ambient sound)", CAP_ANC)
-                .add("anc-button-modes", getValueHint(CAP_ANC_BUTTON_MODES), "ANC modes the headset's ANC button cycles through", CAP_ANC_BUTTON_MODES);
+                .add("anc", getValueHint(CAP_ANC), "Get or set ANC mode (0=off, 1=noise cancelling, 2=ambient sound)", CAP_ANC)
+                .add("anc-button-modes", getValueHint(CAP_ANC_BUTTON_MODES), "Get or set ANC modes the headset's ANC button cycles through", CAP_ANC_BUTTON_MODES);
 
             // Equalizer
             sections.push_back({ "EQUALIZER", {} });
@@ -964,16 +1000,16 @@ namespace help {
             sections.push_back({ "LIGHTS & AUDIO CUES", {} });
             sections.back()
                 .add('l', "light", getValueHint(CAP_LIGHTS), "RGB/LED lights off/on", CAP_LIGHTS)
-                .add('v', "voice-prompt", getValueHint(CAP_VOICE_PROMPTS), "Voice prompts off/on", CAP_VOICE_PROMPTS)
+                .add('v', "voice-prompt", getValueHint(CAP_VOICE_PROMPTS), "Get or set voice prompts off/on", CAP_VOICE_PROMPTS)
                 .add('n', "notificate", getValueHint(CAP_NOTIFICATION_SOUND), "Play notification sound", CAP_NOTIFICATION_SOUND);
 
             // Power & Bluetooth - value hints from capability descriptors
             sections.push_back({ "POWER & BLUETOOTH", {} });
             sections.back()
-                .add('i', "inactive-time", getValueHint(CAP_INACTIVE_TIME), "Auto-off after N minutes (0=never)", CAP_INACTIVE_TIME)
-                .add("bt-when-powered-on", getValueHint(CAP_BT_WHEN_POWERED_ON), "Enable Bluetooth at power-on", CAP_BT_WHEN_POWERED_ON)
+                .add('i', "inactive-time", getValueHint(CAP_INACTIVE_TIME), "Get or set auto-off after N minutes (0=never)", CAP_INACTIVE_TIME)
+                .add("bt-when-powered-on", getValueHint(CAP_BT_WHEN_POWERED_ON), "Get or set Bluetooth at power-on", CAP_BT_WHEN_POWERED_ON)
                 .add("bt-call-volume", getValueHint(CAP_BT_CALL_VOLUME), "Bluetooth call volume", CAP_BT_CALL_VOLUME)
-                .add("anc-startup-mode", getValueHint(CAP_ANC_STARTUP_MODE), "ANC mode at power-on (0=off, 1=NC, 2=ambient, 3=mode at power off)", CAP_ANC_STARTUP_MODE);
+                .add("anc-startup-mode", getValueHint(CAP_ANC_STARTUP_MODE), "Get or set ANC mode at power-on (0=off, 1=NC, 2=ambient, 3=mode at power off)", CAP_ANC_STARTUP_MODE);
 
             // Output - always shown
             sections.push_back({ "OUTPUT", {} });
@@ -1125,7 +1161,7 @@ void initializeFeatureRequests(std::vector<DiscoveredDevice>& devices, const Opt
         { CAP_BATTERY_STATUS, CAPABILITYTYPE_INFO, std::monostate {}, opts.request_battery, {} },
         { CAP_INACTIVE_TIME, CAPABILITYTYPE_ACTION, g_feature_params.inactive_time_val, opts.inactive_time.has_value(), {} },
         { CAP_CHATMIX_STATUS, CAPABILITYTYPE_INFO, std::monostate {}, opts.request_chatmix, {} },
-        { CAP_SIDETONE_STATUS, CAPABILITYTYPE_INFO, std::monostate {}, opts.request_sidetone, {} },
+        { CAP_SIDETONE, CAPABILITYTYPE_INFO, std::monostate {}, opts.request_sidetone, {}, true },
         { CAP_VOICE_PROMPTS, CAPABILITYTYPE_ACTION, g_feature_params.voice_prompts_val, opts.voice_prompts_enabled.has_value(), {} },
         { CAP_ROTATE_TO_MUTE, CAPABILITYTYPE_ACTION, g_feature_params.rotate_to_mute_val, opts.rotate_to_mute_enabled.has_value(), {} },
         { CAP_EQUALIZER_PRESET, CAPABILITYTYPE_ACTION, g_feature_params.equalizer_preset_val, opts.equalizer_preset.has_value(), {} },
@@ -1141,7 +1177,14 @@ void initializeFeatureRequests(std::vector<DiscoveredDevice>& devices, const Opt
         { CAP_ANC_STARTUP_MODE, CAPABILITYTYPE_ACTION, g_feature_params.anc_startup_mode_val, opts.anc_startup_mode.has_value(), {} },
         { CAP_ANC_BUTTON_MODES, CAPABILITYTYPE_ACTION, opts.anc_button_modes.has_value() ? FeatureParam { g_feature_params.anc_button_modes } : FeatureParam { std::monostate {} }, opts.anc_button_modes.has_value(), {} },
         { CAP_MICROPHONE_ATTACHMENT_STATUS, CAPABILITYTYPE_INFO, std::monostate {}, opts.request_microphone_attachment_status, {} },
-        { CAP_MICROPHONE_MUTE_STATUS, CAPABILITYTYPE_INFO, std::monostate {}, opts.request_microphone_mute_status, {} }
+        { CAP_MICROPHONE_MUTE_STATUS, CAPABILITYTYPE_INFO, std::monostate {}, opts.request_microphone_mute_status, {} },
+        // Read-backs of action capabilities (the setter option given without a value)
+        { CAP_ANC, CAPABILITYTYPE_INFO, std::monostate {}, opts.request_anc, {}, true },
+        { CAP_ANC_STARTUP_MODE, CAPABILITYTYPE_INFO, std::monostate {}, opts.request_anc_startup_mode, {}, true },
+        { CAP_ANC_BUTTON_MODES, CAPABILITYTYPE_INFO, std::monostate {}, opts.request_anc_button_modes, {}, true },
+        { CAP_INACTIVE_TIME, CAPABILITYTYPE_INFO, std::monostate {}, opts.request_inactive_time, {}, true },
+        { CAP_VOICE_PROMPTS, CAPABILITYTYPE_INFO, std::monostate {}, opts.request_voice_prompts, {}, true },
+        { CAP_BT_WHEN_POWERED_ON, CAPABILITYTYPE_INFO, std::monostate {}, opts.request_bt_when_powered_on, {}, true }
     };
 
     for (auto& dev : devices) {
@@ -1215,7 +1258,7 @@ void enableExtendedInfoRequests(std::vector<DiscoveredDevice>& devices, bool ext
             continue;
 
         for (auto& req : dev.feature_requests) {
-            if (req.type == CAPABILITYTYPE_INFO && !req.should_process && dev.hasCapability(req.cap)) {
+            if (req.type == CAPABILITYTYPE_INFO && !req.should_process && dev.canProcess(req)) {
                 req.should_process = true;
             }
         }
@@ -1253,7 +1296,7 @@ void processFeatureRequests(std::vector<DiscoveredDevice>& devices, const Option
 
         for (auto& req : dev.feature_requests) {
             if (req.should_process && req.result.status == FEATURE_NOT_PROCESSED) {
-                req.result = handleFeature(dev, req.cap, req.param);
+                req.result = handleFeature(dev, req);
             }
         }
     }

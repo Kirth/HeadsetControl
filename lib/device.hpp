@@ -300,6 +300,8 @@ struct FeatureRequest {
     FeatureParam param; // Type-safe parameter (was void*)
     bool should_process = false;
     FeatureResult result;
+    /// Read back the current value of an action capability instead of setting it
+    bool read = false;
 };
 
 /** @brief Defines the basic data of a device

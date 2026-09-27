@@ -260,6 +260,13 @@ void testLookupSonyINZONEH9II()
     ASSERT_TRUE((device->getCapabilities() & B(CAP_INACTIVE_TIME)) != 0, "H9 II should expose inactive time capability");
     ASSERT_TRUE((device->getCapabilities() & B(CAP_VOICE_PROMPTS)) != 0, "H9 II should expose voice prompts capability");
     ASSERT_TRUE((device->getCapabilities() & B(CAP_BT_WHEN_POWERED_ON)) != 0, "H9 II should expose Bluetooth power-on capability");
+    for (auto cap : { CAP_SIDETONE, CAP_ANC, CAP_ANC_STARTUP_MODE, CAP_ANC_BUTTON_MODES,
+             CAP_INACTIVE_TIME, CAP_VOICE_PROMPTS, CAP_BT_WHEN_POWERED_ON }) {
+        ASSERT_TRUE((device->getReadableCapabilities() & B(cap)) != 0,
+            std::string("H9 II should be able to read back ") + capability_to_string(cap));
+    }
+    ASSERT_FALSE((device->getCapabilities() & B(CAP_SIDETONE_STATUS)) != 0,
+        "H9 II should report sidetone read-back as readable CAP_SIDETONE, not CAP_SIDETONE_STATUS");
 
     std::cout << "    OK lookup Sony INZONE H9 II" << std::endl;
 }
@@ -440,6 +447,29 @@ void testUniqueProductIds()
     std::cout << "    OK product IDs are unique" << std::endl;
 }
 
+void testReadableCapabilitiesAreSupported()
+{
+    std::cout << "  Testing readable capabilities are a subset of capabilities..." << std::endl;
+
+    auto& registry = DeviceRegistry::instance();
+    for (const auto& device : registry.getAllDevices()) {
+        // Capabilities can depend on the matched product ID, so check every variant
+        std::vector<uint16_t> pids = device->getProductIds();
+        pids.push_back(0);
+        for (uint16_t pid : pids) {
+            device->setMatchedProductId(pid);
+            const int caps     = device->getCapabilities();
+            const int readable = device->getReadableCapabilities();
+            ASSERT_TRUE((readable & ~caps) == 0,
+                std::format("\"{}\" ({:04x}) reports readable capabilities it doesn't support: 0x{:x}",
+                    device->getDeviceName(), pid, readable & ~caps));
+        }
+        device->setMatchedProductId(0);
+    }
+
+    std::cout << "    OK readable capabilities are supported" << std::endl;
+}
+
 // ============================================================================
 // Known Vendor Tests
 // ============================================================================
@@ -598,6 +628,7 @@ void runAllDeviceRegistryTests()
     runTest("Device Capabilities", testRegisteredDeviceCapabilities);
     runTest("Product IDs", testDeviceProductIds);
     runTest("Unique Product IDs", testUniqueProductIds);
+    runTest("Readable Capabilities Supported", testReadableCapabilitiesAreSupported);
 
     std::cout << "\n=== Vendor Tests ===" << std::endl;
     runTest("Known Vendors", testKnownVendors);

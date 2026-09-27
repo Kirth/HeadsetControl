@@ -84,6 +84,20 @@ protected:
     static constexpr uint8_t DEVICE_SIDETONE_MAX = 50;
     static constexpr uint8_t DEVICE_MIC_VOL_MAX  = 50;
 
+    // AMB_SETTING nc_setting: 0 = off, 1 = NC, 2 = ambient
+    static constexpr uint8_t NC_SETTING_MAX = 2;
+
+    // NC_STARTUP_MODE: 0 = off, 1 = NC, 2 = ambient, 3 = mode at power off
+    static constexpr uint8_t NC_STARTUP_MODE_MAX = 3;
+
+    // BT_STARTUP_MODE: 0 = off, 1 = on, 2 = state at power off
+    static constexpr uint8_t BT_STARTUP_OFF        = 0;
+    static constexpr uint8_t BT_STARTUP_ON         = 1;
+    static constexpr uint8_t BT_STARTUP_LAST_STATE = 2;
+
+    // AUTO_POWER_OFF_SETTING minutes; 0 = never
+    static constexpr std::array<uint8_t, 6> AUTO_POWER_OFF_MINUTES { 0, 5, 15, 30, 60, 180 };
+
     // Timeouts for matched-response wait
     static constexpr int READ_TIMEOUT_MS   = 500;
     static constexpr int MAX_READ_ATTEMPTS = 10;
@@ -96,6 +110,122 @@ protected:
         std::vector<uint8_t> payload;
     };
 
+public:
+    // ------------------------------------------------------------------------
+    // Payload decoders for GET replies. Static so they can be unit tested
+    // without a device. 0xFF is the dongle's placeholder for "no cached value",
+    // which it reports while the headset is offline.
+    // ------------------------------------------------------------------------
+
+    /// AMB_SETTING: [nc_setting, ambient_level, ambient_level_percent, voice_focus]
+    /// Only nc_setting is decoded: it is the part CAP_ANC sets. The ambient
+    /// level (1..20) and voice focus are configured in INZONE Hub.
+    static Result<AncResult> parseAmbSetting(std::span<const uint8_t> payload)
+    {
+        if (payload.size() < 4) {
+            return DeviceError::protocolError("AMB_SETTING payload too short");
+        }
+        auto mode = parseSingleByte(payload, NC_SETTING_MAX, "AMB_SETTING");
+        if (!mode) {
+            return mode.error();
+        }
+        return AncResult { .mode = *mode };
+    }
+
+    /// NC_TOGGLE_SETTING: [off_enable, nc_enable, ambient_enable]
+    static Result<AncButtonModesResult> parseNcToggleSetting(std::span<const uint8_t> payload)
+    {
+        if (payload.size() < 3) {
+            return DeviceError::protocolError("NC_TOGGLE_SETTING payload too short");
+        }
+        if (payload[0] == 0xFF) {
+            return DeviceError::deviceOffline("Headset offline");
+        }
+        if (payload[0] > 1 || payload[1] > 1 || payload[2] > 1) {
+            return DeviceError::protocolError(std::format(
+                "Invalid ANC button modes: {} {} {}", payload[0], payload[1], payload[2]));
+        }
+        return AncButtonModesResult {
+            .off     = payload[0] == 1,
+            .anc     = payload[1] == 1,
+            .ambient = payload[2] == 1,
+        };
+    }
+
+    /// NC_STARTUP_MODE: [mode]
+    static Result<AncStartupModeResult> parseNcStartupMode(std::span<const uint8_t> payload)
+    {
+        auto mode = parseSingleByte(payload, NC_STARTUP_MODE_MAX, "NC_STARTUP_MODE");
+        if (!mode) {
+            return mode.error();
+        }
+        return AncStartupModeResult { .mode = *mode };
+    }
+
+    /// BT_STARTUP_MODE: [mode]
+    static Result<BluetoothWhenPoweredOnResult> parseBtStartupMode(std::span<const uint8_t> payload)
+    {
+        auto mode = parseSingleByte(payload, BT_STARTUP_LAST_STATE, "BT_STARTUP_MODE");
+        if (!mode) {
+            return mode.error();
+        }
+        return BluetoothWhenPoweredOnResult {
+            .enabled    = *mode == BT_STARTUP_ON,
+            .last_state = *mode == BT_STARTUP_LAST_STATE,
+        };
+    }
+
+    /// AUTO_POWER_OFF_SETTING: [minutes] (H9 II adds a second byte, the last
+    /// non-zero choice, which INZONE Hub uses to keep its dropdown selection
+    /// while auto power off is disabled)
+    static Result<InactiveTimeResult> parseAutoPowerOffSetting(std::span<const uint8_t> payload)
+    {
+        if (payload.empty()) {
+            return DeviceError::protocolError("AUTO_POWER_OFF_SETTING payload empty");
+        }
+        const uint8_t minutes = payload[0];
+        if (minutes == 0xFF) {
+            return DeviceError::deviceOffline("Headset offline");
+        }
+        if (std::find(AUTO_POWER_OFF_MINUTES.begin(), AUTO_POWER_OFF_MINUTES.end(), minutes)
+            == AUTO_POWER_OFF_MINUTES.end()) {
+            return DeviceError::protocolError(std::format("Invalid auto power off time: {}", minutes));
+        }
+        return InactiveTimeResult {
+            .minutes     = minutes,
+            .min_minutes = 0,
+            .max_minutes = AUTO_POWER_OFF_MINUTES.back(),
+        };
+    }
+
+    /// GUIDANCE_SETTING: [enabled]
+    static Result<VoicePromptsResult> parseGuidanceSetting(std::span<const uint8_t> payload)
+    {
+        auto enabled = parseSingleByte(payload, 1, "GUIDANCE_SETTING");
+        if (!enabled) {
+            return enabled.error();
+        }
+        return VoicePromptsResult { .enabled = *enabled == 1 };
+    }
+
+    /// SIDETONE_VOLUME: [value, percent]
+    static Result<SidetoneResult> parseSidetoneVolume(std::span<const uint8_t> payload)
+    {
+        auto value = parseSingleByte(payload, DEVICE_SIDETONE_MAX, "SIDETONE_VOLUME");
+        if (!value) {
+            return value.error();
+        }
+        return SidetoneResult {
+            .current_level = map<uint8_t>(*value, 0, DEVICE_SIDETONE_MAX, 0, 128),
+            .min_level     = 0,
+            .max_level     = 128,
+            .device_min    = 0,
+            .device_max    = DEVICE_SIDETONE_MAX,
+            .device_level  = *value,
+        };
+    }
+
+protected:
     constexpr uint16_t getVendorId() const override { return VENDOR_SONY; }
 
     Result<BatteryResult> getSonyBattery(hid_device* device_handle)
@@ -164,7 +294,8 @@ protected:
     {
         const uint8_t dev_level = map<uint8_t>(level, 0, 128, 0, DEVICE_SIDETONE_MAX);
         // SIDETONE_VOLUME payload: [sidetoneVolValue, sidetoneVolPercent]
-        // The percent byte is a UI label; the Hub sends 0xFF as placeholder.
+        // The percent byte is a UI label the Hub never reads; it echoes back
+        // the last value it received, or 0xFF before it has received one.
         const std::array<uint8_t, 2> payload { dev_level, 0xFF };
 
         auto resp = exchange(device_handle, ADDR_PC_TO_RX, EID_SIDETONE_VOLUME, ETYPE_SET,
@@ -353,6 +484,73 @@ protected:
         }
 
         return BluetoothWhenPoweredOnResult { .enabled = enabled };
+    }
+
+    Result<SidetoneResult> getSonySidetone(hid_device* device_handle)
+    {
+        return getAndParse(device_handle, EID_SIDETONE_VOLUME, parseSidetoneVolume);
+    }
+
+    Result<AncResult> getSonyAnc(hid_device* device_handle)
+    {
+        return getAndParse(device_handle, EID_AMB_SETTING, parseAmbSetting);
+    }
+
+    Result<AncStartupModeResult> getSonyAncStartupMode(hid_device* device_handle)
+    {
+        return getAndParse(device_handle, EID_NC_STARTUP_MODE, parseNcStartupMode);
+    }
+
+    Result<AncButtonModesResult> getSonyAncButtonModes(hid_device* device_handle)
+    {
+        return getAndParse(device_handle, EID_NC_TOGGLE_SETTING, parseNcToggleSetting);
+    }
+
+    Result<InactiveTimeResult> getSonyInactiveTime(hid_device* device_handle)
+    {
+        return getAndParse(device_handle, EID_AUTO_POWER_OFF_SETTING, parseAutoPowerOffSetting);
+    }
+
+    Result<VoicePromptsResult> getSonyVoicePrompts(hid_device* device_handle)
+    {
+        return getAndParse(device_handle, EID_GUIDANCE_SETTING, parseGuidanceSetting);
+    }
+
+    Result<BluetoothWhenPoweredOnResult> getSonyBluetoothWhenPoweredOn(hid_device* device_handle)
+    {
+        return getAndParse(device_handle, EID_BT_STARTUP_MODE, parseBtStartupMode);
+    }
+
+    /**
+     * @brief GET an RX setting and decode the RET payload.
+     *
+     * INZONE Hub itself reads settings from the ALL_FUNCTION_SETTINGS_PART1..3
+     * aggregates at enumeration, but the dongle answers per-event GETs too.
+     */
+    template <typename Parser>
+    auto getAndParse(hid_device* device_handle, uint8_t event_id, Parser parser)
+        -> decltype(parser(std::span<const uint8_t> {}))
+    {
+        auto resp = exchange(device_handle, ADDR_PC_TO_RX, event_id, ETYPE_GET, {});
+        if (!resp) {
+            return resp.error();
+        }
+        return parser(std::span<const uint8_t> { resp->payload });
+    }
+
+    /// Decode a one-byte setting in 0..max, rejecting the 0xFF offline placeholder.
+    static Result<uint8_t> parseSingleByte(std::span<const uint8_t> payload, uint8_t max, std::string_view name)
+    {
+        if (payload.empty()) {
+            return DeviceError::protocolError(std::format("{} payload empty", name));
+        }
+        if (payload[0] == 0xFF) {
+            return DeviceError::deviceOffline("Headset offline");
+        }
+        if (payload[0] > max) {
+            return DeviceError::protocolError(std::format("Invalid {} value: {}", name, payload[0]));
+        }
+        return payload[0];
     }
 
     /**

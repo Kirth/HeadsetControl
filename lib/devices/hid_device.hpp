@@ -75,6 +75,18 @@ public:
     virtual int getCapabilities() const = 0;
 
     /**
+     * @brief Get the subset of getCapabilities() whose current value can be read back
+     *
+     * A readable action capability is read through the matching getter
+     * (getAnc() for CAP_ANC, getInactiveTime() for CAP_INACTIVE_TIME, ...).
+     * The default maps the legacy CAP_SIDETONE_STATUS onto CAP_SIDETONE.
+     */
+    virtual int getReadableCapabilities() const
+    {
+        return (getCapabilities() & B(CAP_SIDETONE_STATUS)) != 0 ? B(CAP_SIDETONE) : 0;
+    }
+
+    /**
      * @brief Get capability details for a specific capability
      */
     virtual constexpr capability_detail getCapabilityDetail([[maybe_unused]] enum capabilities cap) const
@@ -341,6 +353,54 @@ public:
         hid_device* /*device_handle*/, const AncButtonModes& /*modes*/)
     {
         return DeviceError::notSupported("Device does not support ANC button modes");
+    }
+
+    /**
+     * @brief Query the current ANC mode
+     */
+    virtual Result<AncResult> getAnc(hid_device* /*device_handle*/)
+    {
+        return DeviceError::notSupported("Device does not support reading ANC mode");
+    }
+
+    /**
+     * @brief Query the ANC mode used at power-on
+     */
+    virtual Result<AncStartupModeResult> getAncStartupMode(hid_device* /*device_handle*/)
+    {
+        return DeviceError::notSupported("Device does not support reading ANC startup mode");
+    }
+
+    /**
+     * @brief Query the ANC modes the headset's ANC button cycles through
+     */
+    virtual Result<AncButtonModesResult> getAncButtonModes(hid_device* /*device_handle*/)
+    {
+        return DeviceError::notSupported("Device does not support reading ANC button modes");
+    }
+
+    /**
+     * @brief Query the current inactive time (auto power off)
+     */
+    virtual Result<InactiveTimeResult> getInactiveTime(hid_device* /*device_handle*/)
+    {
+        return DeviceError::notSupported("Device does not support reading inactive time");
+    }
+
+    /**
+     * @brief Query whether voice prompts are enabled
+     */
+    virtual Result<VoicePromptsResult> getVoicePrompts(hid_device* /*device_handle*/)
+    {
+        return DeviceError::notSupported("Device does not support reading voice prompts");
+    }
+
+    /**
+     * @brief Query whether Bluetooth turns on at power-on
+     */
+    virtual Result<BluetoothWhenPoweredOnResult> getBluetoothWhenPoweredOn(hid_device* /*device_handle*/)
+    {
+        return DeviceError::notSupported("Device does not support reading Bluetooth power-on behavior");
     }
 
     /**

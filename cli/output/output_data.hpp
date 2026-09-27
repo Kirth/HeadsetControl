@@ -119,6 +119,24 @@ struct SidetoneData {
     }
 };
 
+// A setting read back from the device (an action capability's current value)
+struct SettingData {
+    std::string key; // snake_case capability name, e.g. "anc_startup_mode"
+    std::string title; // capability_to_string(), for standard output
+    int value = 0; // In the encoding the capability's setter takes
+    std::string name; // Human-readable value, if any (e.g. "ambient")
+
+    void serialize(Serializer& s) const
+    {
+        s.beginObject(key);
+        s.write("value", value);
+        if (!name.empty()) {
+            s.write("name", name);
+        }
+        s.endObject();
+    }
+};
+
 struct ErrorData {
     std::string source;
     std::string message;
@@ -192,12 +210,14 @@ struct DeviceData {
     std::vector<std::string> caps;
     std::vector<std::string> caps_str;
     std::vector<enum capabilities> caps_enum;
+    std::vector<std::string> readable_caps;
 
     std::optional<BatteryData> battery;
     std::optional<int> chatmix;
     std::optional<SidetoneData> sidetone;
     std::optional<bool> mic_attached;
     std::optional<bool> mic_muted;
+    std::vector<SettingData> settings;
     std::optional<EqualizerData> equalizer;
     std::optional<int> equalizer_presets_count;
     std::optional<std::vector<EqualizerPresetData>> equalizer_presets;
@@ -218,6 +238,9 @@ struct DeviceData {
 
         s.writeArray("capabilities", caps);
         s.writeArray("capabilities_str", caps_str);
+        if (!readable_caps.empty()) {
+            s.writeArray("readable_capabilities", readable_caps);
+        }
 
         if (battery.has_value()) {
             battery->serialize(s);
@@ -265,6 +288,8 @@ struct DeviceData {
             s.write("mic_muted", *mic_muted);
         }
 
+        serializeSettings(s);
+
         if (!errors.empty()) {
             s.beginObject("errors");
             for (const auto& err : errors) {
@@ -273,6 +298,19 @@ struct DeviceData {
             s.endObject();
         }
 
+        s.endObject();
+    }
+
+    // Shared by the JSON and YAML writers
+    void serializeSettings(Serializer& s) const
+    {
+        if (settings.empty()) {
+            return;
+        }
+        s.beginObject("settings");
+        for (const auto& setting : settings) {
+            setting.serialize(s);
+        }
         s.endObject();
     }
 };

@@ -242,6 +242,29 @@ int hsc_get_capabilities(hsc_headset_t headset)
     return static_cast<HeadsetWrapper*>(headset)->headset.capabilitiesMask();
 }
 
+int hsc_get_readable_capabilities(hsc_headset_t headset)
+{
+    if (!headset) {
+        return 0;
+    }
+    return static_cast<HeadsetWrapper*>(headset)->headset.readableCapabilitiesMask();
+}
+
+hsc_result_t hsc_read_setting(hsc_headset_t headset, hsc_capability_t cap, int* value)
+{
+    if (!headset || !value || cap < 0 || cap >= HSC_NUM_CAPABILITIES) {
+        return HSC_RESULT_INVALID_PARAM;
+    }
+
+    auto result = static_cast<HeadsetWrapper*>(headset)->headset.readSetting(static_cast<capabilities>(cap));
+    if (!result) {
+        return toErrorCode(result.error());
+    }
+
+    *value = *result;
+    return HSC_RESULT_OK;
+}
+
 // ============================================================================
 // Battery & Status
 // ============================================================================

@@ -38,6 +38,12 @@ public:
             | B(CAP_MICROPHONE_ATTACHMENT_STATUS) | B(CAP_MICROPHONE_MUTE_STATUS);
     }
 
+    int getReadableCapabilities() const override
+    {
+        return B(CAP_SIDETONE) | B(CAP_INACTIVE_TIME) | B(CAP_VOICE_PROMPTS)
+            | B(CAP_BT_WHEN_POWERED_ON) | B(CAP_ANC) | B(CAP_ANC_STARTUP_MODE) | B(CAP_ANC_BUTTON_MODES);
+    }
+
     constexpr capability_detail getCapabilityDetail([[maybe_unused]] enum capabilities cap) const override
     {
         return { .usagepage = 0xFF04, .usageid = 0x0001, .interface_id = 5 };
@@ -58,9 +64,19 @@ public:
         return setSonySidetone(device_handle, level);
     }
 
+    Result<SidetoneResult> getSidetone(hid_device* device_handle) override
+    {
+        return getSonySidetone(device_handle);
+    }
+
     Result<InactiveTimeResult> setInactiveTime(hid_device* device_handle, uint8_t minutes) override
     {
         return setSonyInactiveTime(device_handle, minutes, true);
+    }
+
+    Result<InactiveTimeResult> getInactiveTime(hid_device* device_handle) override
+    {
+        return getSonyInactiveTime(device_handle);
     }
 
     Result<VoicePromptsResult> setVoicePrompts(hid_device* device_handle, bool enabled) override
@@ -68,9 +84,19 @@ public:
         return setSonyVoicePrompts(device_handle, enabled);
     }
 
+    Result<VoicePromptsResult> getVoicePrompts(hid_device* device_handle) override
+    {
+        return getSonyVoicePrompts(device_handle);
+    }
+
     Result<BluetoothWhenPoweredOnResult> setBluetoothWhenPoweredOn(hid_device* device_handle, bool enabled) override
     {
         return setSonyBluetoothWhenPoweredOn(device_handle, enabled);
+    }
+
+    Result<BluetoothWhenPoweredOnResult> getBluetoothWhenPoweredOn(hid_device* device_handle) override
+    {
+        return getSonyBluetoothWhenPoweredOn(device_handle);
     }
 
     Result<AncResult> setAnc(hid_device* device_handle, uint8_t mode) override
@@ -78,15 +104,30 @@ public:
         return setSonyAnc(device_handle, mode);
     }
 
+    Result<AncResult> getAnc(hid_device* device_handle) override
+    {
+        return getSonyAnc(device_handle);
+    }
+
     Result<AncStartupModeResult> setAncStartupMode(hid_device* device_handle, uint8_t mode) override
     {
         return setSonyAncStartupMode(device_handle, mode);
+    }
+
+    Result<AncStartupModeResult> getAncStartupMode(hid_device* device_handle) override
+    {
+        return getSonyAncStartupMode(device_handle);
     }
 
     Result<AncButtonModesResult> setAncButtonModes(
         hid_device* device_handle, const AncButtonModes& modes) override
     {
         return setSonyAncButtonModes(device_handle, modes);
+    }
+
+    Result<AncButtonModesResult> getAncButtonModes(hid_device* device_handle) override
+    {
+        return getSonyAncButtonModes(device_handle);
     }
 
     Result<MicAttachmentStatusResult> getMicAttachmentStatus(hid_device* device_handle) override

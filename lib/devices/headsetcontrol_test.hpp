@@ -73,6 +73,13 @@ public:
             | B(CAP_ANC_BUTTON_MODES) | B(CAP_MICROPHONE_ATTACHMENT_STATUS) | B(CAP_MICROPHONE_MUTE_STATUS);
     }
 
+    int getReadableCapabilities() const override
+    {
+        const int readable = HIDDevice::getReadableCapabilities() | B(CAP_ANC) | B(CAP_ANC_STARTUP_MODE)
+            | B(CAP_ANC_BUTTON_MODES) | B(CAP_INACTIVE_TIME) | B(CAP_VOICE_PROMPTS) | B(CAP_BT_WHEN_POWERED_ON);
+        return readable & getCapabilities();
+    }
+
     std::optional<EqualizerInfo> getEqualizerInfo() const override
     {
         return EqualizerInfo {
@@ -296,6 +303,60 @@ public:
         }
 
         return MicMuteStatusResult { .muted = false };
+    }
+
+    Result<AncResult> getAnc([[maybe_unused]] hid_device* device_handle) override
+    {
+        if (test_profile == 1) {
+            return DeviceError::hidError("Test error condition");
+        }
+
+        return AncResult { .mode = 2 };
+    }
+
+    Result<AncStartupModeResult> getAncStartupMode([[maybe_unused]] hid_device* device_handle) override
+    {
+        if (test_profile == 1) {
+            return DeviceError::hidError("Test error condition");
+        }
+
+        return AncStartupModeResult { .mode = 3 };
+    }
+
+    Result<AncButtonModesResult> getAncButtonModes([[maybe_unused]] hid_device* device_handle) override
+    {
+        if (test_profile == 1) {
+            return DeviceError::hidError("Test error condition");
+        }
+
+        return AncButtonModesResult { .off = false, .anc = true, .ambient = true };
+    }
+
+    Result<InactiveTimeResult> getInactiveTime([[maybe_unused]] hid_device* device_handle) override
+    {
+        if (test_profile == 1) {
+            return DeviceError::hidError("Test error condition");
+        }
+
+        return InactiveTimeResult { .minutes = 30, .min_minutes = 0, .max_minutes = 255 };
+    }
+
+    Result<VoicePromptsResult> getVoicePrompts([[maybe_unused]] hid_device* device_handle) override
+    {
+        if (test_profile == 1) {
+            return DeviceError::hidError("Test error condition");
+        }
+
+        return VoicePromptsResult { .enabled = true };
+    }
+
+    Result<BluetoothWhenPoweredOnResult> getBluetoothWhenPoweredOn([[maybe_unused]] hid_device* device_handle) override
+    {
+        if (test_profile == 1) {
+            return DeviceError::hidError("Test error condition");
+        }
+
+        return BluetoothWhenPoweredOnResult { .enabled = false, .last_state = true };
     }
 
     Result<NotificationSoundResult> notificationSound([[maybe_unused]] hid_device* device_handle, uint8_t sound_id) override

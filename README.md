@@ -190,15 +190,17 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 | Audeze Maxwell 2 | All | x | x |   |   | x | x | x |   | x |   |   |   |   |   |   |   | x |   |   |   |   |   |   |
 | Lenovo Wireless VoIP Headset | All | x | x |   |   | x |   | x | x | x |   |   | x |   | x |   |   |   |   |   |   |   |   |   |
 | Plantronics Voyager 8200 UC (BT600) | L/W | x | x |   | x |   |   | x |   |   |   |   |   |   | x |   |   |   |   |   |   |   |   |   |
-| Jabra Link 390 (paired headset) | L/M | x | x |   | x | x |   | x |   |   |   |   |   |   | x |   |   |   | x |   |   |   |   |   |
-| Jabra Evolve2 65 Flex (USB) | L/M | x | x |   | x | x |   | x |   |   |   |   |   |   | x |   |   |   | x |   |   |   |   |   |
+| Jabra Link 390 (paired headset) | L/M | xr | x |   | x | x |   | x |   |   |   |   |   |   | x |   |   |   | x |   |   |   |   |   |
+| Jabra Evolve2 65 Flex (USB) | L/M | xr | x |   | x | x |   | x |   |   |   |   |   |   | x |   |   |   | x |   |   |   |   |   |
 | Sony INZONE Buds | All |   | x |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |
 | Sony INZONE H5 | All | x | x |   |   |   | x |   |   |   |   |   |   | x |   |   |   |   |   |   |   |   |   |   |
-| Sony INZONE H9 II | All | x | x |   |   | x | x | x |   |   |   |   |   |   |   | x |   |   |   | x | x | x | x | x |
+| Sony INZONE H9 II | All | xr | x |   |   | xr | x | xr |   |   |   |   |   |   |   | xr |   |   |   | xr | xr | xr | x | x |
 | MCHOSE X9 Wireless | L/W |   | x |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |   |
-| HeadsetControl Test device | All | x | x | x | x | x | x | x | x | x | x | x | x | x | x | x | x | x | x | x | x | x | x | x |
+| HeadsetControl Test device | All | xr | x | x | x | xr | x | xr | x | x | x | x | x | x | x | xr | x | x | x | xr | xr | xr | x | x |
 
 **Platform:** All = Linux, macOS, Windows | L/M = Linux and macOS only | L/W = Linux and Windows only
+
+`r` The current value can also be read back: pass the option without a value, e.g. `headsetcontrol --anc`.
 
 \* Only available on some product variants of that device. Sidetone status reading, for instance, is verified only for the SteelSeries Arctis Nova 7 Gen 2 (`1038:227e`).
 

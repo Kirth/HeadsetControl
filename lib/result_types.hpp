@@ -301,6 +301,7 @@ struct VolumeLimiterResult {
  */
 struct BluetoothWhenPoweredOnResult {
     bool enabled; // Whether Bluetooth turns on with device
+    bool last_state = false; // Bluetooth restores the state it had at power off (enabled is then false)
 };
 
 /**

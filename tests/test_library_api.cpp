@@ -336,6 +336,36 @@ void testCppTestDeviceMode()
             ASSERT_EQ(85, sidetone_status->current_level, "Sidetone status should be 85");
             ASSERT_EQ(2, sidetone_status->device_level, "Native sidetone level should be 2");
 
+            // Test setting read-backs
+            ASSERT_TRUE(headset.canRead(CAP_ANC), "Test device should read back ANC");
+            ASSERT_TRUE(headset.canRead(CAP_SIDETONE), "CAP_SIDETONE_STATUS should make sidetone readable");
+            ASSERT_FALSE(headset.canRead(CAP_EQUALIZER), "Test device should not read back the equalizer");
+            ASSERT_EQ(0, headset.readableCapabilitiesMask() & ~headset.capabilitiesMask(),
+                "Readable capabilities should be supported capabilities");
+
+            auto anc = headset.getAnc();
+            ASSERT_TRUE(anc.hasValue(), "ANC read should return success");
+            ASSERT_EQ(2, anc->mode, "ANC mode should be ambient");
+
+            auto anc_setting = headset.readSetting(CAP_ANC);
+            ASSERT_TRUE(anc_setting.hasValue(), "readSetting(CAP_ANC) should return success");
+            ASSERT_EQ(2, *anc_setting, "readSetting(CAP_ANC) should be ambient");
+
+            auto buttons = headset.readSetting(CAP_ANC_BUTTON_MODES);
+            ASSERT_TRUE(buttons.hasValue(), "readSetting(CAP_ANC_BUTTON_MODES) should return success");
+            ASSERT_EQ(6, *buttons, "ANC button modes should be anc|ambient");
+
+            auto inactive = headset.getInactiveTime();
+            ASSERT_TRUE(inactive.hasValue(), "Inactive time read should return success");
+            ASSERT_EQ(30, inactive->minutes, "Inactive time should be 30 minutes");
+
+            auto bt_power_on = headset.getBluetoothWhenPoweredOn();
+            ASSERT_TRUE(bt_power_on.hasValue(), "Bluetooth power-on read should return success");
+            ASSERT_TRUE(bt_power_on->last_state, "Bluetooth power-on should restore the last state");
+
+            auto eq = headset.readSetting(CAP_EQUALIZER);
+            ASSERT_FALSE(eq.hasValue(), "Reading an unreadable capability should fail");
+
             // Test chatmix
             auto chatmix = headset.getChatmix();
             ASSERT_TRUE(chatmix.hasValue(), "Chatmix should return success");
@@ -466,6 +496,21 @@ void testCTestDeviceMode()
             hsc_mic_attachment_status_t mic_attachment_status;
             ASSERT_EQ(HSC_RESULT_OK, hsc_get_mic_attachment_status(headsets[i], &mic_attachment_status), "Mic attachment status should succeed");
             ASSERT_TRUE(mic_attachment_status.attached, "Mic should be attached");
+
+            const int readable = hsc_get_readable_capabilities(headsets[i]);
+            ASSERT_TRUE((readable & (1 << HSC_CAP_ANC)) != 0, "ANC should be readable");
+            ASSERT_EQ(0, readable & ~hsc_get_capabilities(headsets[i]), "Readable capabilities should be supported");
+
+            int setting = -1;
+            ASSERT_EQ(HSC_RESULT_OK, hsc_read_setting(headsets[i], HSC_CAP_ANC, &setting), "Reading ANC should succeed");
+            ASSERT_EQ(2, setting, "ANC should read as ambient");
+            ASSERT_EQ(HSC_RESULT_OK, hsc_read_setting(headsets[i], HSC_CAP_BT_WHEN_POWERED_ON, &setting), "Reading Bluetooth power-on should succeed");
+            ASSERT_EQ(2, setting, "Bluetooth power-on should read as last state");
+            ASSERT_EQ(HSC_RESULT_OK, hsc_read_setting(headsets[i], HSC_CAP_SIDETONE, &setting), "Reading sidetone should succeed");
+            ASSERT_EQ(85, setting, "Sidetone should read as 85");
+            ASSERT_EQ(HSC_RESULT_NOT_SUPPORTED, hsc_read_setting(headsets[i], HSC_CAP_EQUALIZER, &setting), "Reading the equalizer should not be supported");
+            ASSERT_EQ(HSC_RESULT_INVALID_PARAM, hsc_read_setting(headsets[i], HSC_CAP_ANC, nullptr), "Reading with null output should fail");
+            ASSERT_EQ(HSC_RESULT_INVALID_PARAM, hsc_read_setting(headsets[i], HSC_NUM_CAPABILITIES, &setting), "Reading an invalid capability should fail");
 
             ASSERT_EQ(HSC_RESULT_OK, hsc_set_anc(headsets[i], 2), "ANC should succeed");
             ASSERT_EQ(HSC_RESULT_OK, hsc_set_anc_startup_mode(headsets[i], 3), "ANC startup mode should succeed");

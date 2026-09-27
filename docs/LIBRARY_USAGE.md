@@ -273,6 +273,10 @@ std::string_view productName = headset.productName(); // "G PRO X 2 LIGHTSPEED"
 bool hasBattery = headset.supports(CAP_BATTERY_STATUS);
 int capsMask = headset.capabilitiesMask();        // Bitmask
 std::vector<std::string_view> capNames = headset.capabilityNames();
+
+// Which of those can also be read back (a subset of capabilitiesMask())
+bool ancReadable = headset.canRead(CAP_ANC);
+int readableMask = headset.readableCapabilitiesMask();
 ```
 
 `vendorName()` and `productName()` come from HID enumeration metadata. If the OS or device does not provide these strings, they return an empty string.
@@ -308,7 +312,7 @@ if (headset.supports(CAP_CHATMIX_STATUS)) {
 }
 
 // Get current sidetone level
-if (headset.supports(CAP_SIDETONE_STATUS)) {
+if (headset.canRead(CAP_SIDETONE)) { // also true for devices with CAP_SIDETONE_STATUS
     auto result = headset.getSidetone();
     if (result) {
         std::cout << "Sidetone: " << (int)result->current_level
@@ -448,6 +452,17 @@ if (headset.supports(CAP_ANC_STARTUP_MODE)) {
 // Modes the headset's ANC button cycles through (at least one)
 if (headset.supports(CAP_ANC_BUTTON_MODES)) {
     headset.setAncButtonModes({ .off = true, .anc = true, .ambient = false });
+}
+
+// Read back current settings, where the device supports it
+if (headset.canRead(CAP_ANC)) {
+    if (auto r = headset.getAnc()) {
+        std::cout << "ANC mode: " << int(r->mode) << "\n";
+    }
+}
+// Or generically, in the encoding the setter takes
+if (auto minutes = headset.readSetting(CAP_INACTIVE_TIME)) {
+    std::cout << "Inactive time: " << *minutes << " min\n";
 }
 
 if (auto r = headset.getMicAttachmentStatus()) {
@@ -706,6 +721,9 @@ if (hsc_supports(headset, HSC_CAP_BATTERY_STATUS)) {
 
 // Get all capabilities as bitmask
 int caps = hsc_get_capabilities(headset);
+
+// Capabilities whose current value can be read back with hsc_read_setting()
+int readable = hsc_get_readable_capabilities(headset);
 ```
 
 ### Battery
@@ -773,6 +791,12 @@ hsc_set_anc(headset, 1);
 hsc_set_anc_startup_mode(headset, 3); // 3 = mode at power off
 hsc_anc_button_modes_t modes = { .off = true, .anc = true, .ambient = false };
 hsc_set_anc_button_modes(headset, &modes);
+
+// Read back current settings (see hsc_get_readable_capabilities())
+int value;
+if (hsc_get_readable_capabilities(headset) & (1 << HSC_CAP_ANC)) {
+    hsc_read_setting(headset, HSC_CAP_ANC, &value); // 0 = off, 1 = ANC, 2 = ambient
+}
 
 // Microphone status
 hsc_mic_attachment_status_t attachment;

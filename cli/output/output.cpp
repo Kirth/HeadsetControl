@@ -6,11 +6,14 @@
 ***/
 
 #include "output.hpp"
+#include "capability_descriptors.hpp"
 #include "devices/hid_device.hpp"
 #include "output_data.hpp"
 #include "string_utils.hpp"
 #include "version.h"
 
+#include <algorithm>
+#include <cctype>
 #include <format>
 #include <hidapi.h>
 
@@ -108,6 +111,31 @@ void processMicMuteStatusResult(const FeatureResult& result, DeviceData& dev)
     }
 }
 
+// Snake_case key for a setting, from its CLI option name ("anc-startup-mode" -> "anc_startup_mode")
+std::string settingKey(capabilities cap)
+{
+    std::string key(headsetcontrol::getCapabilityDescriptor(cap).name);
+    std::replace(key.begin(), key.end(), '-', '_');
+    return key;
+}
+
+// Process a read-back of an action capability's current value
+void processSettingResult(const FeatureRequest& req, DeviceData& dev)
+{
+    const auto& result = req.result;
+    if (result.status == FEATURE_SUCCESS || result.status == FEATURE_INFO) {
+        dev.settings.push_back(SettingData {
+            .key   = settingKey(req.cap),
+            .title = capability_to_string(req.cap),
+            .value = result.value,
+            .name  = result.message,
+        });
+    } else if (result.status == FEATURE_ERROR) {
+        dev.errors.emplace_back(capability_to_string(req.cap), result.message);
+        dev.status = STATUS_PARTIAL;
+    }
+}
+
 // Process action capability result and add to device actions
 void processActionResult(const FeatureRequest& req, DeviceData& dev, std::string_view device_name)
 {
@@ -136,8 +164,11 @@ void processFeatureRequest(const FeatureRequest& req, DeviceData& dev, std::stri
         processBatteryResult(req.result, dev);
     } else if (req.cap == CAP_CHATMIX_STATUS) {
         processChatmixResult(req.result, dev);
-    } else if (req.cap == CAP_SIDETONE_STATUS) {
+    } else if (req.read && req.cap == CAP_SIDETONE) {
+        // Sidetone keeps its own output object from the CAP_SIDETONE_STATUS days
         processSidetoneResult(req.result, dev);
+    } else if (req.read) {
+        processSettingResult(req, dev);
     } else if (req.cap == CAP_MICROPHONE_ATTACHMENT_STATUS) {
         processMicAttachmentStatusResult(req.result, dev);
     } else if (req.cap == CAP_MICROPHONE_MUTE_STATUS) {
@@ -192,6 +223,9 @@ void processFeatureRequest(const FeatureRequest& req, DeviceData& dev, std::stri
                 dev.caps.emplace_back(capability_to_enum_string(static_cast<capabilities>(j)));
                 dev.caps_str.emplace_back(capability_to_string(static_cast<capabilities>(j)));
                 dev.caps_enum.emplace_back(static_cast<enum capabilities>(j));
+            }
+            if (device_caps & hid_device->getReadableCapabilities() & B(j)) {
+                dev.readable_caps.emplace_back(capability_to_enum_string(static_cast<capabilities>(j)));
             }
         }
 
@@ -300,6 +334,9 @@ void outputYaml(const OutputData& data)
 
             s.writeArray("capabilities", dev.caps);
             s.writeArray("capabilities_str", dev.caps_str);
+            if (!dev.readable_caps.empty()) {
+                s.writeArray("readable_capabilities", dev.readable_caps);
+            }
 
             if (dev.battery.has_value()) {
                 dev.battery->serialize(s);
@@ -346,6 +383,8 @@ void outputYaml(const OutputData& data)
             if (dev.mic_muted.has_value()) {
                 s.write("mic_muted", *dev.mic_muted);
             }
+
+            dev.serializeSettings(s);
 
             if (!dev.errors.empty()) {
                 s.beginObject("errors");
@@ -474,6 +513,15 @@ void outputEnv(const OutputData& data)
             s.write(prefix + "_MIC_MUTED", *dev.mic_muted ? 1 : 0);
         }
 
+        for (const auto& setting : dev.settings) {
+            std::string key = std::format("{}_SETTING_{}", prefix, setting.key);
+            std::transform(key.begin(), key.end(), key.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+            s.write(key, setting.value);
+            if (!setting.name.empty()) {
+                s.write(key + "_NAME", setting.name);
+            }
+        }
+
         s.write(prefix + "_ERROR_COUNT", static_cast<int>(dev.errors.size()));
         for (size_t j = 0; j < dev.errors.size(); ++j) {
             s.write(std::format("{}_ERROR_{}_SOURCE", prefix, j + 1), dev.errors[j].source);
@@ -558,6 +606,21 @@ void outputStandard(const OutputData& data, bool print_capabilities)
 
         if (dev.mic_muted.has_value()) {
             s.println("Mic mute: {}", *dev.mic_muted ? "muted" : "unmuted");
+            outputted = true;
+        }
+
+        for (const auto& setting : dev.settings) {
+            std::string title = setting.title;
+            if (title.starts_with("anc")) {
+                title.replace(0, 3, "ANC");
+            } else if (!title.empty()) {
+                title[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(title[0])));
+            }
+            if (setting.name.empty()) {
+                s.println("{}: {}", title, setting.value);
+            } else {
+                s.println("{}: {}", title, setting.name);
+            }
             outputted = true;
         }
 

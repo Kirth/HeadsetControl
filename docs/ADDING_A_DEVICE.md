@@ -390,6 +390,37 @@ return makeCapabilityDetail(0xffc0, 0x1, 3);
 | `CAP_MICROPHONE_ATTACHMENT_STATUS` | Info | Detachable boom mic attachment status |
 | `CAP_MICROPHONE_MUTE_STATUS` | Info | Microphone mute status |
 
+### Readable capabilities
+
+If the device can report the current value of a setting, list the action capability in
+`getReadableCapabilities()` and implement the matching getter. Don't add a new capability for it:
+
+```cpp
+int getReadableCapabilities() const override
+{
+    return B(CAP_ANC) | B(CAP_INACTIVE_TIME);
+}
+
+Result<AncResult> getAnc(hid_device* device_handle) override { /* ... */ }
+Result<InactiveTimeResult> getInactiveTime(hid_device* device_handle) override { /* ... */ }
+```
+
+| Readable capability | Getter |
+|---------------------|--------|
+| `CAP_SIDETONE` | `getSidetone()` |
+| `CAP_ANC` | `getAnc()` |
+| `CAP_ANC_STARTUP_MODE` | `getAncStartupMode()` |
+| `CAP_ANC_BUTTON_MODES` | `getAncButtonModes()` |
+| `CAP_INACTIVE_TIME` | `getInactiveTime()` |
+| `CAP_VOICE_PROMPTS` | `getVoicePrompts()` |
+| `CAP_BT_WHEN_POWERED_ON` | `getBluetoothWhenPoweredOn()` |
+
+Readable capabilities must also be in `getCapabilities()` (a unit test checks every registered device).
+The CLI reads them when the setter option is given without a value (`--anc`, `-i`, ...), and
+`-o json` includes them under `settings`. `CAP_SIDETONE_STATUS` is the older one-off for sidetone;
+devices that report it count as having readable `CAP_SIDETONE`, but new devices should use
+`getReadableCapabilities()` instead.
+
 ## Example: Complete Device Implementation
 
 See `lib/devices/logitech_g535.hpp` for a complete example using the HID++ protocol, or `lib/devices/headsetcontrol_test.hpp` for a reference implementation of all capabilities.

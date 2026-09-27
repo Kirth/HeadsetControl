@@ -113,6 +113,24 @@ public:
      */
     [[nodiscard]] std::vector<std::string_view> capabilityNames() const;
 
+    /**
+     * @brief Check if the current value of a capability can be read back
+     */
+    [[nodiscard]] bool canRead(enum capabilities cap) const;
+
+    /**
+     * @brief Get bitmask of the supported capabilities that can be read back
+     */
+    [[nodiscard]] int readableCapabilitiesMask() const;
+
+    /**
+     * @brief Read back the current value of a capability
+     * @return The value in the encoding its setter takes (e.g. the ANC mode,
+     *         the inactive time in minutes; ANC button modes as a bitmask
+     *         off = 1, anc = 2, ambient = 4; Bluetooth power-on 2 = last state)
+     */
+    [[nodiscard]] Result<int> readSetting(enum capabilities cap);
+
     // ========================================================================
     // Battery & Status
     // ========================================================================
@@ -132,6 +150,8 @@ public:
     /**
      * @brief Get the current sidetone level
      * @return Sidetone info or error
+     *
+     * Available when supports(CAP_SIDETONE_STATUS) or canRead(CAP_SIDETONE).
      */
     [[nodiscard]] Result<SidetoneResult> getSidetone();
 
@@ -244,6 +264,11 @@ public:
     [[nodiscard]] Result<VoicePromptsResult> setVoicePrompts(bool enabled);
 
     /**
+     * @brief Get whether voice prompts are on (when canRead(CAP_VOICE_PROMPTS))
+     */
+    [[nodiscard]] Result<VoicePromptsResult> getVoicePrompts();
+
+    /**
      * @brief Play notification sound
      * @param soundId Sound ID to play
      */
@@ -260,10 +285,22 @@ public:
     [[nodiscard]] Result<InactiveTimeResult> setInactiveTime(uint8_t minutes);
 
     /**
+     * @brief Get inactive time (auto power-off) (when canRead(CAP_INACTIVE_TIME))
+     */
+    [[nodiscard]] Result<InactiveTimeResult> getInactiveTime();
+
+    /**
      * @brief Set Bluetooth when powered on
      * @param enabled Enable/disable Bluetooth at power-on
      */
     [[nodiscard]] Result<BluetoothWhenPoweredOnResult> setBluetoothWhenPoweredOn(bool enabled);
+
+    /**
+     * @brief Get Bluetooth power-on behavior (when canRead(CAP_BT_WHEN_POWERED_ON))
+     *
+     * last_state is set when Bluetooth restores the state it had at power off.
+     */
+    [[nodiscard]] Result<BluetoothWhenPoweredOnResult> getBluetoothWhenPoweredOn();
 
     /**
      * @brief Set Bluetooth call volume
@@ -278,16 +315,31 @@ public:
     [[nodiscard]] Result<AncResult> setAnc(uint8_t mode);
 
     /**
+     * @brief Get current active noise cancellation mode (when canRead(CAP_ANC))
+     */
+    [[nodiscard]] Result<AncResult> getAnc();
+
+    /**
      * @brief Set ANC mode used at power-on
      * @param mode 0 = off, 1 = noise cancelling, 2 = ambient sound, 3 = mode at power off
      */
     [[nodiscard]] Result<AncStartupModeResult> setAncStartupMode(uint8_t mode);
 
     /**
+     * @brief Get ANC mode used at power-on (when canRead(CAP_ANC_STARTUP_MODE))
+     */
+    [[nodiscard]] Result<AncStartupModeResult> getAncStartupMode();
+
+    /**
      * @brief Set ANC modes the headset's ANC button cycles through
      * @param modes Modes to include; at least one must be set
      */
     [[nodiscard]] Result<AncButtonModesResult> setAncButtonModes(const AncButtonModes& modes);
+
+    /**
+     * @brief Get ANC modes the headset's ANC button cycles through (when canRead(CAP_ANC_BUTTON_MODES))
+     */
+    [[nodiscard]] Result<AncButtonModesResult> getAncButtonModes();
 
 private:
     friend class HeadsetImpl;

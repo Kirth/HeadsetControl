@@ -2,6 +2,7 @@
 
 #include "device_registry.hpp"
 #include "devices/hid_device.hpp"
+#include "feature_handlers.hpp"
 #include "hid_utility.hpp"
 #include "string_utils.hpp"
 #include "version.h"
@@ -226,6 +227,16 @@ std::vector<std::string_view> Headset::capabilityNames() const
     return names;
 }
 
+bool Headset::canRead(enum capabilities cap) const
+{
+    return (readableCapabilitiesMask() & B(cap)) != 0;
+}
+
+int Headset::readableCapabilitiesMask() const
+{
+    return impl_->device()->getReadableCapabilities() & impl_->device()->getCapabilities();
+}
+
 // ============================================================================
 // Feature Implementations (with automatic connection handling)
 // ============================================================================
@@ -245,6 +256,35 @@ std::vector<std::string_view> Headset::capabilityNames() const
         return impl_->device()->method(handle __VA_OPT__(, ) __VA_ARGS__); \
     } while (0)
 
+// Same, for reading back the current value of a readable capability
+#define HEADSET_READ_IMPL(cap, method)                                 \
+    do {                                                               \
+        if (!canRead(cap)) {                                           \
+            return DeviceError::notSupported("Reading not supported"); \
+        }                                                              \
+        hid_device* handle = impl_->getConnection(cap);                \
+        if (!handle && !impl_->isTestDevice()) {                       \
+            return DeviceError::hidError("Could not open device");     \
+        }                                                              \
+        return impl_->device()->method(handle);                        \
+    } while (0)
+
+Result<int> Headset::readSetting(enum capabilities cap)
+{
+    if (!canRead(cap)) {
+        return DeviceError::notSupported("Reading not supported");
+    }
+    hid_device* handle = impl_->getConnection(cap);
+    if (!handle && !impl_->isTestDevice()) {
+        return DeviceError::hidError("Could not open device");
+    }
+    auto result = FeatureHandlerRegistry::instance().executeRead(cap, impl_->device(), handle);
+    if (!result) {
+        return result.error();
+    }
+    return result->value;
+}
+
 Result<BatteryResult> Headset::getBattery()
 {
     HEADSET_FEATURE_IMPL(CAP_BATTERY_STATUS, getBattery);
@@ -257,7 +297,10 @@ Result<ChatmixResult> Headset::getChatmix()
 
 Result<SidetoneResult> Headset::getSidetone()
 {
-    HEADSET_FEATURE_IMPL(CAP_SIDETONE_STATUS, getSidetone);
+    if (supports(CAP_SIDETONE_STATUS)) {
+        HEADSET_FEATURE_IMPL(CAP_SIDETONE_STATUS, getSidetone);
+    }
+    HEADSET_READ_IMPL(CAP_SIDETONE, getSidetone);
 }
 
 Result<SidetoneResult> Headset::setSidetone(uint8_t level)
@@ -324,6 +367,36 @@ Result<MicMuteStatusResult> Headset::getMicMuteStatus()
 Result<MicAttachmentStatusResult> Headset::getMicAttachmentStatus()
 {
     HEADSET_FEATURE_IMPL(CAP_MICROPHONE_ATTACHMENT_STATUS, getMicAttachmentStatus);
+}
+
+Result<AncResult> Headset::getAnc()
+{
+    HEADSET_READ_IMPL(CAP_ANC, getAnc);
+}
+
+Result<AncStartupModeResult> Headset::getAncStartupMode()
+{
+    HEADSET_READ_IMPL(CAP_ANC_STARTUP_MODE, getAncStartupMode);
+}
+
+Result<AncButtonModesResult> Headset::getAncButtonModes()
+{
+    HEADSET_READ_IMPL(CAP_ANC_BUTTON_MODES, getAncButtonModes);
+}
+
+Result<InactiveTimeResult> Headset::getInactiveTime()
+{
+    HEADSET_READ_IMPL(CAP_INACTIVE_TIME, getInactiveTime);
+}
+
+Result<VoicePromptsResult> Headset::getVoicePrompts()
+{
+    HEADSET_READ_IMPL(CAP_VOICE_PROMPTS, getVoicePrompts);
+}
+
+Result<BluetoothWhenPoweredOnResult> Headset::getBluetoothWhenPoweredOn()
+{
+    HEADSET_READ_IMPL(CAP_BT_WHEN_POWERED_ON, getBluetoothWhenPoweredOn);
 }
 
 Result<RotateToMuteResult> Headset::setRotateToMute(bool enabled)

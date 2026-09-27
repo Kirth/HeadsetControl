@@ -16,6 +16,7 @@
 #include "devices/protocols/hidpp_protocol.hpp"
 #include "devices/protocols/logitech_calibrations.hpp"
 #include "devices/protocols/logitech_centurion_protocol.hpp"
+#include "devices/protocols/sony_inzone_protocol.hpp"
 #include "devices/protocols/steelseries_protocol.hpp"
 #include "result_types.hpp"
 #include "utility.hpp"
@@ -707,6 +708,103 @@ void testCorsairPacketFormat()
 // Test Runner
 // ============================================================================
 
+// ============================================================================
+// Sony INZONE Tests
+// ============================================================================
+
+using headsetcontrol::protocols::SonyINZONEProtocol;
+
+template <size_t N>
+std::span<const uint8_t> bytes(const std::array<uint8_t, N>& a)
+{
+    return { a.data(), a.size() };
+}
+
+void testSonyAmbSettingParsing()
+{
+    std::cout << "  Testing Sony INZONE AMB_SETTING parsing..." << std::endl;
+
+    // GET reply observed on an H9 II: ANC, ambient level 20, percent 0xFF, voice focus off
+    const std::array<uint8_t, 4> observed { 0x01, 0x14, 0xFF, 0x00 };
+    auto anc = SonyINZONEProtocol::parseAmbSetting(bytes(observed));
+    ASSERT_TRUE(anc.hasValue(), "Observed AMB_SETTING reply should parse");
+    ASSERT_EQ(1, anc->mode, "Mode should be ANC");
+
+    const std::array<uint8_t, 4> ambient { 0x02, 0x05, 0x19, 0x01 };
+    auto amb = SonyINZONEProtocol::parseAmbSetting(bytes(ambient));
+    ASSERT_TRUE(amb.hasValue(), "Ambient reply should parse");
+    ASSERT_EQ(2, amb->mode, "Mode should be ambient");
+
+    const std::array<uint8_t, 4> offline { 0xFF, 0xFF, 0xFF, 0xFF };
+    auto off = SonyINZONEProtocol::parseAmbSetting(bytes(offline));
+    ASSERT_TRUE(!off.hasValue(), "0xFF mode should be rejected");
+    ASSERT_TRUE(off.error().code == DeviceError::Code::DeviceOffline, "0xFF mode should mean offline");
+
+    const std::array<uint8_t, 4> bad_mode { 0x03, 0x14, 0xFF, 0x00 };
+    ASSERT_TRUE(!SonyINZONEProtocol::parseAmbSetting(bytes(bad_mode)).hasValue(), "Mode 3 should be rejected");
+
+    const std::array<uint8_t, 3> short_payload { 0x01, 0x14, 0xFF };
+    ASSERT_TRUE(!SonyINZONEProtocol::parseAmbSetting(bytes(short_payload)).hasValue(), "Short payload should be rejected");
+
+    std::cout << "    [OK] Sony INZONE AMB_SETTING parsing verified" << std::endl;
+}
+
+void testSonySettingParsing()
+{
+    std::cout << "  Testing Sony INZONE setting parsing..." << std::endl;
+
+    const std::array<uint8_t, 3> toggle { 0x00, 0x01, 0x01 };
+    auto buttons = SonyINZONEProtocol::parseNcToggleSetting(bytes(toggle));
+    ASSERT_TRUE(buttons.hasValue(), "NC toggle reply should parse");
+    ASSERT_TRUE(!buttons->off && buttons->anc && buttons->ambient, "NC toggle should be anc,ambient");
+    const std::array<uint8_t, 3> bad_toggle { 0x00, 0x02, 0x01 };
+    ASSERT_TRUE(!SonyINZONEProtocol::parseNcToggleSetting(bytes(bad_toggle)).hasValue(), "NC toggle byte 2 should be rejected");
+
+    const std::array<uint8_t, 1> startup_last { 0x03 };
+    auto startup = SonyINZONEProtocol::parseNcStartupMode(bytes(startup_last));
+    ASSERT_TRUE(startup.hasValue(), "NC startup reply should parse");
+    ASSERT_EQ(3, startup->mode, "NC startup should be mode at power off");
+    const std::array<uint8_t, 1> startup_bad { 0x04 };
+    ASSERT_TRUE(!SonyINZONEProtocol::parseNcStartupMode(bytes(startup_bad)).hasValue(), "NC startup 4 should be rejected");
+
+    const std::array<uint8_t, 1> bt_on { 0x01 };
+    auto bt = SonyINZONEProtocol::parseBtStartupMode(bytes(bt_on));
+    ASSERT_TRUE(bt.hasValue() && bt->enabled && !bt->last_state, "BT startup 1 should be on");
+    const std::array<uint8_t, 1> bt_last { 0x02 };
+    auto bt2 = SonyINZONEProtocol::parseBtStartupMode(bytes(bt_last));
+    ASSERT_TRUE(bt2.hasValue() && !bt2->enabled && bt2->last_state, "BT startup 2 should be last state");
+
+    // H9 II auto power off carries [minutes, last non-zero choice]
+    const std::array<uint8_t, 2> apo_off { 0x00, 0x1E };
+    auto apo = SonyINZONEProtocol::parseAutoPowerOffSetting(bytes(apo_off));
+    ASSERT_TRUE(apo.hasValue(), "Auto power off reply should parse");
+    ASSERT_EQ(0, apo->minutes, "Disabled auto power off should read 0");
+    const std::array<uint8_t, 2> apo_180 { 0xB4, 0xB4 };
+    auto apo2 = SonyINZONEProtocol::parseAutoPowerOffSetting(bytes(apo_180));
+    ASSERT_TRUE(apo2.hasValue(), "180 minute reply should parse");
+    ASSERT_EQ(180, apo2->minutes, "Auto power off should read 180");
+    const std::array<uint8_t, 1> apo_bad { 0x07 };
+    ASSERT_TRUE(!SonyINZONEProtocol::parseAutoPowerOffSetting(bytes(apo_bad)).hasValue(), "7 minutes should be rejected");
+
+    const std::array<uint8_t, 1> guidance_on { 0x01 };
+    auto guidance = SonyINZONEProtocol::parseGuidanceSetting(bytes(guidance_on));
+    ASSERT_TRUE(guidance.hasValue() && guidance->enabled, "Guidance 1 should be on");
+
+    const std::array<uint8_t, 2> sidetone_raw { 0x07, 0xFF };
+    auto sidetone = SonyINZONEProtocol::parseSidetoneVolume(bytes(sidetone_raw));
+    ASSERT_TRUE(sidetone.hasValue(), "Sidetone reply should parse");
+    ASSERT_EQ(7, sidetone->device_level, "Sidetone device level should be raw value");
+    ASSERT_EQ(17, sidetone->current_level, "Sidetone 7/50 should map to 17/128");
+
+    // 0xFF placeholder and empty payloads
+    const std::array<uint8_t, 1> offline { 0xFF };
+    auto off = SonyINZONEProtocol::parseGuidanceSetting(bytes(offline));
+    ASSERT_TRUE(!off.hasValue() && off.error().code == DeviceError::Code::DeviceOffline, "0xFF should mean offline");
+    ASSERT_TRUE(!SonyINZONEProtocol::parseBtStartupMode({}).hasValue(), "Empty payload should be rejected");
+
+    std::cout << "    [OK] Sony INZONE setting parsing verified" << std::endl;
+}
+
 void runAllProtocolTests()
 {
     std::cout << "\n============================================" << std::endl;
@@ -764,6 +862,10 @@ void runAllProtocolTests()
     runTest("Corsair Sidetone Mapping", testCorsairSidetoneMapping);
     runTest("Corsair Battery Response", testCorsairBatteryResponseParsing);
     runTest("Corsair Packet Format", testCorsairPacketFormat);
+
+    // Sony INZONE
+    runTest("Sony INZONE AMB_SETTING Parsing", testSonyAmbSettingParsing);
+    runTest("Sony INZONE Setting Parsing", testSonySettingParsing);
 
     std::cout << "\n--------------------------------------------" << std::endl;
     std::cout << "Protocol Tests: " << passed << " passed, " << failed << " failed" << std::endl;

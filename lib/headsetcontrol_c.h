@@ -280,6 +280,32 @@ HSC_API bool hsc_supports(hsc_headset_t headset, hsc_capability_t cap);
  */
 HSC_API int hsc_get_capabilities(hsc_headset_t headset);
 
+/**
+ * @brief Get bitmask of the supported capabilities whose current value can be read back
+ *
+ * A subset of hsc_get_capabilities(). Read the values with hsc_read_setting().
+ *
+ * @param headset Headset handle
+ * @return Bitmask of readable capabilities
+ */
+HSC_API int hsc_get_readable_capabilities(hsc_headset_t headset);
+
+/**
+ * @brief Read back the current value of a readable capability
+ *
+ * The value uses the encoding the capability's setter takes: the ANC mode, the
+ * inactive time in minutes, 0/1 for toggles, the sidetone level (0-128).
+ * ANC button modes are a bitmask (off = 1, anc = 2, ambient = 4). Bluetooth
+ * when powered on can also report 2, restore the state at power off.
+ *
+ * @param headset Headset handle
+ * @param cap Capability to read, one of hsc_get_readable_capabilities()
+ * @param[out] value Current value
+ * @return HSC_RESULT_OK on success, HSC_RESULT_NOT_SUPPORTED if cap is not readable,
+ *         or another negative error code
+ */
+HSC_API hsc_result_t hsc_read_setting(hsc_headset_t headset, hsc_capability_t cap, int* value);
+
 /* ============================================================================
  * Battery & Status
  * ============================================================================ */

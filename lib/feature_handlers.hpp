@@ -82,6 +82,14 @@ public:
     }
 
     /**
+     * @brief Register a handler that reads back the current value of a capability
+     */
+    void registerReadHandler(capabilities cap, FeatureHandler handler)
+    {
+        read_handlers_[static_cast<size_t>(cap)] = std::move(handler);
+    }
+
+    /**
      * @brief Check if a handler is registered for a capability
      */
     [[nodiscard]] bool hasHandler(capabilities cap) const
@@ -111,15 +119,37 @@ public:
         return handler(device, handle, param);
     }
 
+    /**
+     * @brief Read back the current value of a capability
+     *
+     * The output value uses the encoding the capability's setter takes, e.g. the
+     * ANC mode or the inactive time in minutes.
+     */
+    [[nodiscard]] Result<FeatureOutput> executeRead(
+        capabilities cap,
+        HIDDevice* device,
+        hid_device* handle) const
+    {
+        const auto& handler = read_handlers_[static_cast<size_t>(cap)];
+        if (!handler) {
+            return DeviceError::notSupported(
+                std::format("Reading {} is not supported", capability_to_string(cap)));
+        }
+        return handler(device, handle, std::monostate {});
+    }
+
 private:
     FeatureHandlerRegistry()
     {
         registerAllHandlers();
+        registerAllReadHandlers();
     }
 
     void registerAllHandlers();
+    void registerAllReadHandlers();
 
     std::array<FeatureHandler, NUM_CAPABILITIES> handlers_ {};
+    std::array<FeatureHandler, NUM_CAPABILITIES> read_handlers_ {};
 };
 
 /**
@@ -193,6 +223,22 @@ namespace detail {
     inline const ParametricEqualizerSettings& getParametricEq(const FeatureParam& p)
     {
         return std::get<ParametricEqualizerSettings>(p);
+    }
+
+    inline std::string_view ancModeName(uint8_t mode)
+    {
+        switch (mode) {
+        case 0:
+            return "off";
+        case 1:
+            return "anc";
+        case 2:
+            return "ambient";
+        case 3:
+            return "last"; // ANC startup mode only: mode at power off
+        default:
+            return "unknown";
+        }
     }
 
     inline const AncButtonModes& getAncButtonModes(const FeatureParam& p)
@@ -392,6 +438,72 @@ inline void FeatureHandlerRegistry::registerAllHandlers()
         if (r.hasError())
             return r.error();
         return FeatureOutput::success(r->muted ? 1 : 0, r->muted ? "muted" : "unmuted");
+    });
+}
+
+inline void FeatureHandlerRegistry::registerAllReadHandlers()
+{
+    using namespace detail;
+
+    registerReadHandler(CAP_SIDETONE, [](HIDDevice* dev, hid_device* h, const FeatureParam&) -> Result<FeatureOutput> {
+        auto r = dev->getSidetone(h);
+        if (r.hasError())
+            return r.error();
+        return FeatureOutput::fromSidetone(r.value());
+    });
+
+    registerReadHandler(CAP_ANC, [](HIDDevice* dev, hid_device* h, const FeatureParam&) -> Result<FeatureOutput> {
+        auto r = dev->getAnc(h);
+        if (r.hasError())
+            return r.error();
+        return FeatureOutput::success(r->mode, std::string(ancModeName(r->mode)));
+    });
+
+    registerReadHandler(CAP_ANC_STARTUP_MODE, [](HIDDevice* dev, hid_device* h, const FeatureParam&) -> Result<FeatureOutput> {
+        auto r = dev->getAncStartupMode(h);
+        if (r.hasError())
+            return r.error();
+        return FeatureOutput::success(r->mode, std::string(ancModeName(r->mode)));
+    });
+
+    // Value is a bitmask (off = 1, anc = 2, ambient = 4); the label uses the
+    // comma-separated form --anc-button-modes takes.
+    registerReadHandler(CAP_ANC_BUTTON_MODES, [](HIDDevice* dev, hid_device* h, const FeatureParam&) -> Result<FeatureOutput> {
+        auto r = dev->getAncButtonModes(h);
+        if (r.hasError())
+            return r.error();
+        std::string label;
+        for (auto [enabled, name] : { std::pair { r->off, "off" }, std::pair { r->anc, "anc" }, std::pair { r->ambient, "ambient" } }) {
+            if (enabled) {
+                label += label.empty() ? name : std::format(",{}", name);
+            }
+        }
+        const int mask = (r->off ? 1 : 0) | (r->anc ? 2 : 0) | (r->ambient ? 4 : 0);
+        return FeatureOutput::success(mask, label);
+    });
+
+    registerReadHandler(CAP_INACTIVE_TIME, [](HIDDevice* dev, hid_device* h, const FeatureParam&) -> Result<FeatureOutput> {
+        auto r = dev->getInactiveTime(h);
+        if (r.hasError())
+            return r.error();
+        return FeatureOutput::success(r->minutes);
+    });
+
+    registerReadHandler(CAP_VOICE_PROMPTS, [](HIDDevice* dev, hid_device* h, const FeatureParam&) -> Result<FeatureOutput> {
+        auto r = dev->getVoicePrompts(h);
+        if (r.hasError())
+            return r.error();
+        return FeatureOutput::success(r->enabled ? 1 : 0, r->enabled ? "on" : "off");
+    });
+
+    // 2 = restore the state at power off, which the 0/1 setter cannot select
+    registerReadHandler(CAP_BT_WHEN_POWERED_ON, [](HIDDevice* dev, hid_device* h, const FeatureParam&) -> Result<FeatureOutput> {
+        auto r = dev->getBluetoothWhenPoweredOn(h);
+        if (r.hasError())
+            return r.error();
+        if (r->last_state)
+            return FeatureOutput::success(2, "last");
+        return FeatureOutput::success(r->enabled ? 1 : 0, r->enabled ? "on" : "off");
     });
 }
 

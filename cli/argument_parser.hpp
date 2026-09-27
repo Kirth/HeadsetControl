@@ -305,6 +305,26 @@ public:
         return *this;
     }
 
+    // Integer value that queries the current setting when given without a value
+    template <std::integral T>
+    ArgumentParser& value_or_query(char short_name, std::string_view long_name,
+        std::optional<T>& target, bool& query_target, T min_val, T max_val,
+        std::string_view description = "", std::string_view hint = "NUMBER")
+    {
+        value(short_name, long_name, target, min_val, max_val, description, hint);
+        makeLastOptionQueryable(target, query_target);
+        return *this;
+    }
+
+    // Boolean toggle that queries the current setting when given without a value
+    ArgumentParser& toggle_or_query(char short_name, std::string_view long_name,
+        std::optional<bool>& target, bool& query_target, std::string_view description = "")
+    {
+        toggle(short_name, long_name, target, description);
+        makeLastOptionQueryable(target, query_target);
+        return *this;
+    }
+
     // Long-only option (no short name)
     ArgumentParser& long_flag(std::string_view long_name, bool& target,
         std::string_view description = "")
@@ -324,6 +344,20 @@ public:
         std::optional<bool>& target, std::string_view description = "")
     {
         return toggle('\0', long_name, target, description);
+    }
+
+    template <std::integral T>
+    ArgumentParser& long_value_or_query(std::string_view long_name,
+        std::optional<T>& target, bool& query_target, T min_val, T max_val,
+        std::string_view description = "", std::string_view hint = "NUMBER")
+    {
+        return value_or_query('\0', long_name, target, query_target, min_val, max_val, description, hint);
+    }
+
+    ArgumentParser& long_toggle_or_query(std::string_view long_name,
+        std::optional<bool>& target, bool& query_target, std::string_view description = "")
+    {
+        return toggle_or_query('\0', long_name, target, query_target, description);
     }
 
     ArgumentParser& long_custom(std::string_view long_name,
@@ -441,6 +475,25 @@ private:
     std::string program_name_;
     std::vector<OptionSpec> options_;
     std::vector<char*> positional_args_;
+
+    // Turn the option added last into one whose argument is optional: without
+    // an argument it requests a query of the current setting instead of a set.
+    template <typename T>
+    void makeLastOptionQueryable(std::optional<T>& target, bool& query_target)
+    {
+        auto& spec   = options_.back();
+        spec.arg_req = ArgRequirement::Optional;
+        spec.handler = OptionHandler([&target, &query_target, set_handler = std::move(spec.handler)](
+                                         std::optional<std::string_view> arg) -> std::optional<ParseError> {
+            if (!arg || arg->empty()) {
+                target.reset();
+                query_target = true;
+                return std::nullopt;
+            }
+            query_target = false;
+            return set_handler(arg);
+        });
+    }
 
     struct GetoptStructures {
         std::vector<struct option> long_opts;

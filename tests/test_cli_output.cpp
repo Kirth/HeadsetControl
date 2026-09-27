@@ -421,6 +421,69 @@ void testCliMicStatusOutputs()
     std::cout << "    OK microphone status outputs" << std::endl;
 }
 
+void testCliReadSettingOutputs()
+{
+    std::cout << "  Testing setting read-backs in all output formats..." << std::endl;
+
+    const std::string device = HEADSETCONTROL_EXE " --test-device -d 0xf00b:0xa00c";
+    const std::string query  = device + " --anc --anc-startup-mode --anc-button-modes -i -v --bt-when-powered-on";
+
+    std::string json = exec((query + " -o json 2>&1").c_str());
+    ASSERT_CONTAINS(json, "\"readable_capabilities\": [", "JSON should list readable capabilities");
+    ASSERT_CONTAINS(json, "\"settings\": {", "JSON should have settings object");
+    ASSERT_CONTAINS(json, "\"anc\": {", "JSON should have anc setting");
+    ASSERT_CONTAINS(json, "\"name\": \"ambient\"", "JSON should name the ANC mode");
+    ASSERT_CONTAINS(json, "\"anc_button_modes\": {", "JSON should have ANC button modes");
+    ASSERT_CONTAINS(json, "\"name\": \"anc,ambient\"", "JSON should list ANC button modes");
+    ASSERT_CONTAINS(json, "\"inactive_time\": {", "JSON should have inactive time");
+    ASSERT_CONTAINS(json, "\"value\": 30", "JSON should have inactive time value");
+
+    std::string yaml = exec((query + " -o yaml 2>&1").c_str());
+    ASSERT_CONTAINS(yaml, "readable_capabilities:", "YAML should list readable capabilities");
+    ASSERT_CONTAINS(yaml, "settings:", "YAML should have settings object");
+    ASSERT_CONTAINS(yaml, "anc_startup_mode:", "YAML should have ANC startup mode");
+
+    std::string env = exec((query + " -o env 2>&1").c_str());
+    ASSERT_CONTAINS(env, "DEVICE_0_SETTING_ANC=2", "ENV should have ANC mode");
+    ASSERT_CONTAINS(env, "DEVICE_0_SETTING_ANC_NAME=\"ambient\"", "ENV should name the ANC mode");
+    ASSERT_CONTAINS(env, "DEVICE_0_SETTING_ANC_STARTUP_MODE=3", "ENV should have ANC startup mode");
+    ASSERT_CONTAINS(env, "DEVICE_0_SETTING_ANC_BUTTON_MODES=6", "ENV should have ANC button modes bitmask");
+    ASSERT_CONTAINS(env, "DEVICE_0_SETTING_INACTIVE_TIME=30", "ENV should have inactive time");
+    ASSERT_CONTAINS(env, "DEVICE_0_SETTING_VOICE_PROMPT=1", "ENV should have voice prompts");
+    ASSERT_CONTAINS(env, "DEVICE_0_SETTING_BT_WHEN_POWERED_ON=2", "ENV should have Bluetooth power-on mode");
+
+    std::string standard = exec((query + " 2>&1").c_str());
+    ASSERT_CONTAINS(standard, "ANC: ambient", "standard output should show ANC");
+    ASSERT_CONTAINS(standard, "ANC startup mode: last", "standard output should show ANC startup mode");
+    ASSERT_CONTAINS(standard, "ANC button modes: anc,ambient", "standard output should show ANC button modes");
+    ASSERT_CONTAINS(standard, "Inactive time: 30", "standard output should show inactive time");
+    ASSERT_CONTAINS(standard, "Voice prompts: on", "standard output should show voice prompts");
+    ASSERT_CONTAINS(standard, "Bluetooth when powered on: last", "standard output should show Bluetooth power-on mode");
+
+    // With a value the same options still set, and don't also read
+    std::string set = exec((device + " --anc 1 --anc-button-modes off,anc -i 15 -v 0 --bt-when-powered-on 1 2>&1").c_str());
+    ASSERT_CONTAINS(set, "Successfully set anc!", "--anc with a value should set");
+    ASSERT_CONTAINS(set, "Successfully set anc button modes!", "--anc-button-modes with a value should set");
+    ASSERT_CONTAINS(set, "Successfully set inactive time!", "-i with a value should set");
+    ASSERT_CONTAINS(set, "Successfully set voice prompts!", "-v with a value should set");
+    ASSERT_CONTAINS(set, "Successfully set bluetooth when powered on!", "--bt-when-powered-on with a value should set");
+    ASSERT_NOT_CONTAINS(set, "ANC:", "setting should not also read");
+
+    // A read flag directly followed by another option must not swallow it
+    std::string mixed = exec((device + " -i -v 2>&1").c_str());
+    ASSERT_CONTAINS(mixed, "Inactive time: 30", "-i followed by -v should read inactive time");
+    ASSERT_CONTAINS(mixed, "Voice prompts: on", "-v at the end should read voice prompts");
+
+    std::string invalid = exec((device + " --anc 7 2>&1").c_str());
+    ASSERT_CONTAINS(invalid, "Error", "out-of-range --anc should still be rejected");
+
+    // Profile 10 supports sidetone but can't read it back
+    std::string unreadable = exec(HEADSETCONTROL_EXE " --test-device 10 -d 0xf00b:0xa00c -s 2>&1");
+    ASSERT_CONTAINS(unreadable, "can't read back", "reading an unreadable capability should say so");
+
+    std::cout << "    OK setting read-back outputs" << std::endl;
+}
+
 void testCliSidetoneStatusOutputs()
 {
     std::cout << "  Testing sidetone status in all output formats..." << std::endl;
@@ -604,6 +667,7 @@ void runAllCliOutputTests()
     runTest("Standard No Args", testCliStandardNoArgs);
     runTest("Sidetone Status Outputs", testCliSidetoneStatusOutputs);
     runTest("Mic Status Outputs", testCliMicStatusOutputs);
+    runTest("Read Setting Outputs", testCliReadSettingOutputs);
 
     std::cout << "\n=== Short Output Tests ===" << std::endl;
     runTest("Short Output", testCliShortOutput);
